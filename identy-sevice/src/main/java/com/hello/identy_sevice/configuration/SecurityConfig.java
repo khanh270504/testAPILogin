@@ -2,6 +2,7 @@ package com.hello.identy_sevice.configuration;
 
 
 import com.hello.identy_sevice.enums.Role;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,10 +27,12 @@ import javax.crypto.spec.SecretKeySpec;
 @EnableMethodSecurity
 public class SecurityConfig {
     private final   String[] PUBLIC_ENDPOINTS = {"/users",
-            "/auth/token", "/auth/introspect"};
+            "/auth/token", "/auth/introspect", "/auth/logout"};
 
-    @Value("${jwt.sign.key}")
-    private String singerKey;
+
+    @Autowired
+    private CustomJwtDecoder customJwtDecoder;
+
     @Bean
 
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -42,7 +45,7 @@ public class SecurityConfig {
                 );
         http.csrf(AbstractHttpConfigurer::disable);
         http.oauth2ResourceServer(oauth2 ->
-                oauth2.jwt(jwtConfigurer -> jwtConfigurer.decoder(jwtDecoder())
+                oauth2.jwt(jwtConfigurer -> jwtConfigurer.decoder(customJwtDecoder)
                         .jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint(new JwtAuthenticationEntryPoint())
 
@@ -50,14 +53,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    JwtDecoder jwtDecoder() {
-        SecretKeySpec secretKeySpec = new SecretKeySpec(singerKey.getBytes(), "HS512");
-        return NimbusJwtDecoder
-                .withSecretKey(secretKeySpec)
-                .macAlgorithm(MacAlgorithm.HS512)
-                .build();
-    };
+
 
     @Bean
     PasswordEncoder passwordEncoder() {
