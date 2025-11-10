@@ -4,6 +4,7 @@ package com.hello.identy_sevice.service;
 import com.hello.identy_sevice.dto.request.AuthenticationRequest;
 import com.hello.identy_sevice.dto.request.IntrospectRequest;
 import com.hello.identy_sevice.dto.request.LogoutRequest;
+import com.hello.identy_sevice.dto.request.RefreshRequest;
 import com.hello.identy_sevice.dto.response.AuthenticationResponse;
 import com.hello.identy_sevice.dto.response.IntrospectResponse;
 import com.hello.identy_sevice.dto.response.UserResponse;
@@ -49,13 +50,21 @@ public class AuthenticationService {
     @Value("${jwt.sign.key}")
     protected String SIGNER_KEY ;
 
+    @NonFinal
+    @Value("${jwt.valid-duration}")
+    protected long VALID_DURATION ;
+
+    @NonFinal
+    @Value("${jwt.refreshable-duration}")
+    protected long Refreshable_DURATION ;
+
     public IntrospectResponse introspectResponse(IntrospectRequest request)
                 throws JOSEException, ParseException {
         var token = request.getToken();
         boolean isValid = true;
 
         try {
-            verifyToken(token);
+            verifyToken(token, false);
         }catch (AppException e) {
             isValid = false;
         }
@@ -85,25 +94,52 @@ public class AuthenticationService {
     }
 
 
-    public void logout(LogoutRequest request)  throws ParseException, JOSEException{
-        var signToken = verifyToken(request.getToken());
+    public void logout(LogoutRequest request) throws ParseException, JOSEException {
+        try {
+            var signToken = verifyToken(request.getToken(), true);
 
-        String jit = signToken.getJWTClaimsSet().getJWTID();
-        Date expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
+            String jit = signToken.getJWTClaimsSet().getJWTID();
+            Date expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
+
+            InvalidatedToken invalidatedToken =
+                    InvalidatedToken.builder().id(jit).expiryTime(expiryTime).build();
+
+            invalidatedTokenRepository.save(invalidatedToken);
+        } catch (AppException exception){
+            log.info("Token already expired");
+        }
+    }
+
+    public AuthenticationResponse refreshToken(RefreshRequest request) throws ParseException, JOSEException {
+        var signToken = verifyToken(request.getToken(), true);
+
+        var jti = signToken.getJWTClaimsSet().getJWTID();
+        var expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
 
         InvalidatedToken invalidatedToken = InvalidatedToken.builder()
-                .id(jit)
+                .id(jti)
                 .expiryTime(expiryTime)
                 .build();
         invalidatedTokenRepository.save(invalidatedToken);
+        var username = signToken.getJWTClaimsSet().getSubject();
 
+        var user = userRepository.findByUsername(username).orElseThrow(
+                () -> new AppException(ErrorCode.UNAUTHENTICATED)
+        );
+        var token = generateToken(user);
+        return AuthenticationResponse.builder()
+                .token(token)
+                .authenticated(true)
+                .build();
     }
 
-    private SignedJWT verifyToken(String token) throws JOSEException, ParseException {
+    private SignedJWT verifyToken(String token, boolean isRefresh) throws JOSEException, ParseException {
         JWSVerifier verifier = new MACVerifier(SIGNER_KEY.getBytes());
         SignedJWT signedJWT = SignedJWT.parse(token);
 
-        Date expityTime = signedJWT.getJWTClaimsSet().getExpirationTime();
+        Date expityTime =(isRefresh)
+        ? new Date(signedJWT.getJWTClaimsSet().getIssueTime().toInstant().plus(Refreshable_DURATION, ChronoUnit.SECONDS).toEpochMilli())
+        : signedJWT.getJWTClaimsSet().getExpirationTime();
 
         var verified = signedJWT.verify(verifier);
         if(!(verified && expityTime.after(new Date()))) {
@@ -123,7 +159,7 @@ public class AuthenticationService {
                 .issuer("hello")
                 .issueTime(new Date())
                 .expirationTime(new Date(
-                        Instant.now().plus(1, ChronoUnit.HOURS).toEpochMilli()
+                        Instant.now().plus(VALID_DURATION, ChronoUnit.SECONDS).toEpochMilli()
                 ))
                 .jwtID(UUID.randomUUID().toString())
                 .claim("scope", buildScope(user))
