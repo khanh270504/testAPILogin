@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
 
 @Generated(
     value = "org.mapstruct.ap.MappingProcessor",
-    date = "2025-11-05T22:40:36+0700",
-    comments = "version: 1.6.3, compiler: javac, environment: Java 24 (Oracle Corporation)"
+    date = "2025-12-17T22:40:12+0700",
+    comments = "version: 1.6.3, compiler: javac, environment: Java 21.0.9 (Oracle Corporation)"
 )
 @Component
 public class PermissionMapperImpl implements PermissionMapper {
